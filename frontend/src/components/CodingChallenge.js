@@ -69,7 +69,7 @@ const CodingChallenge = ({ challenge: initialChallengeData, onComplete, onReques
     return savedTheme || 'light'; // Default to light if no saved theme
   });
   
-  const { setInterviewStage, jobDetails, interviewStage, setCurrentCodingChallenge } = useInterview();
+  const { setInterviewStage, jobDetails, interviewStage, setCurrentCodingChallenge, addMessage } = useInterview();
   
   // Function to fetch a new coding challenge
   const fetchNewChallenge = async () => {
@@ -443,7 +443,7 @@ const CodingChallenge = ({ challenge: initialChallengeData, onComplete, onReques
       };
 
       // First call the API to transition to feedback stage
-      await continueAfterCodingChallenge(
+      const response = await continueAfterCodingChallenge(
         JSON.stringify(feedbackMessage), // Send the full feedback message
         sessionId,
         userId,
@@ -457,6 +457,16 @@ const CodingChallenge = ({ challenge: initialChallengeData, onComplete, onReques
       
       // Set the interview stage to FEEDBACK
       setInterviewStage('FEEDBACK');
+
+      // Add the AI's response to the chat messages if available
+      if (response && response.response) {
+        addMessage({
+          role: 'assistant',
+          content: response.response,
+          tool_calls: response.tool_calls,
+          audioUrl: response.audio_response_url
+        });
+      }
     } catch (error) {
       console.error("Error transitioning to feedback stage:", error);
     }

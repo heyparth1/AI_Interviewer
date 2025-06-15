@@ -292,6 +292,72 @@ def safe_extract_content(message: AIMessage) -> str:
     except Exception:
         return "I apologize, but I encountered an issue. Please try again."
 
+def format_feedback_prompt(feedback_data: dict, execution_results: dict, code: str) -> str:
+    """
+    Format the feedback prompt with proper error handling.
+    
+    Args:
+        feedback_data (dict): The feedback data from evaluation
+        execution_results (dict): The execution results from test cases
+        code (str): The candidate's submitted code
+        
+    Returns:
+        str: Formatted feedback prompt
+    """
+    try:
+        pass_count = execution_results.get("pass_count", "?") if execution_results else "?"
+        total_tests = execution_results.get("total_tests", "?") if execution_results else "?"
+        
+        return f'''\\n\\nIMPORTANT: You are now in the FEEDBACK stage. The candidate has just submitted a coding challenge solution, or has explicitly requested feedback on it. 
+The details of their submission are available in the evaluation data. Your task is to provide immediate, comprehensive, and assertive feedback.
+
+Your primary task is to provide immediate, comprehensive, and assertive feedback. Follow these steps:
+
+1. Start with a brief acknowledgment of their submission
+2. Provide detailed feedback on:
+   - Code correctness and completeness (passed tests: {pass_count}/{total_tests})
+   - Code quality and style
+   - Problem-solving approach
+   - Technical implementation
+   - Any errors or issues found
+3. Be specific and direct in your feedback:
+   - Point out exact lines or sections that need improvement
+   - Explain why certain approaches were good or could be better
+   - Provide concrete examples of better implementations where relevant
+4. End with clear next steps:
+   - Ask if they have questions about the feedback
+   - Offer to provide a hint if they want to improve their solution
+   - Ask if they're ready to move on to the next stage
+
+Your feedback should be thorough and actionable, focusing on helping the candidate improve while maintaining a professional tone.
+
+Do not transition to behavioral questions unless the candidate explicitly states they are ready to move on.
+
+Here is the evaluation data to use in your feedback:
+{json.dumps(feedback_data, indent=2) if feedback_data else "No feedback data available"}
+
+Here are the execution results:
+{json.dumps(execution_results, indent=2) if execution_results else "No execution results available"}
+
+Here is the candidate's code:
+{code if code else "No code available"}'''
+    except Exception as e:
+        logger.error(f"Error formatting feedback prompt: {str(e)}")
+        return "Error formatting feedback. Please try again."
+
+def validate_feedback_data(feedback_data: dict) -> bool:
+    """
+    Validate that feedback data contains required fields.
+    
+    Args:
+        feedback_data (dict): The feedback data to validate
+        
+    Returns:
+        bool: True if all required fields are present, False otherwise
+    """
+    required_fields = ["summary", "correctness", "efficiency", "code_quality"]
+    return all(field in feedback_data for field in required_fields)
+
 class AIInterviewer:
     """Main class that encapsulates the AI Interviewer functionality."""
     
@@ -1239,6 +1305,16 @@ class AIInterviewer:
                                 feedback_data = evaluation_data.get("feedback", {})
                                 execution_results = evaluation_data.get("execution_results", {})
                                 code = message_data.get("code", "")
+                                
+                                # Validate feedback data
+                                if not validate_feedback_data(feedback_data):
+                                    logger.warning("Feedback data missing required fields")
+                                    feedback_data = {
+                                        "summary": "Feedback data incomplete",
+                                        "correctness": {},
+                                        "efficiency": {},
+                                        "code_quality": {}
+                                    }
                     except (json.JSONDecodeError, AttributeError):
                         pass
                     
@@ -1247,45 +1323,34 @@ class AIInterviewer:
                         is_coding_feedback_context = True
                     
                     if is_coding_feedback_context:
-                        system_prompt += """\n\nIMPORTANT: You are now in the FEEDBACK stage. The candidate has just submitted a coding challenge solution, or has explicitly requested feedback on it. 
-The details of their submission are available in the evaluation data. Your task is to provide immediate, comprehensive, and assertive feedback.
-
-Your primary task is to provide immediate, comprehensive, and assertive feedback. Follow these steps:
-
-1. Start with a brief acknowledgment of their submission
-2. Provide detailed feedback on:
-   - Code correctness and completeness (passed tests: {pass_count}/{total_tests})
-   - Code quality and style
-   - Problem-solving approach
-   - Technical implementation
-   - Any errors or issues found
-3. Be specific and direct in your feedback:
-   - Point out exact lines or sections that need improvement
-   - Explain why certain approaches were good or could be better
-   - Provide concrete examples of better implementations where relevant
-4. End with clear next steps:
-   - Ask if they have questions about the feedback
-   - Offer to provide a hint if they want to improve their solution
-   - Ask if they're ready to move on to the next stage
-
-Your feedback should be thorough and actionable, focusing on helping the candidate improve while maintaining a professional tone.
-
-Do not transition to behavioral questions unless the candidate explicitly states they are ready to move on.
-
-Here is the evaluation data to use in your feedback:
-{feedback_data}
-
-Here are the execution results:
-{execution_results}
-
-Here is the candidate's code:
-{code}""".format(
-    pass_count=execution_results.get("pass_count", "?"),
-    total_tests=execution_results.get("total_tests", "?"),
-    feedback_data=json.dumps(feedback_data, indent=2) if feedback_data else "No feedback data available",
-    execution_results=json.dumps(execution_results, indent=2) if execution_results else "No execution results available",
-    code=code if code else "No code available"
-)
+                        # Safely extract feedback data
+                        feedback_data = {}
+                        execution_results = {}
+                        code = ""
+                        
+                        try:
+                            if "evaluationResult" in last_human_or_system_message_content:
+                                message_data = json.loads(last_human_or_system_message_content)
+                                if message_data.get("evaluationResult"):
+                                    evaluation_data = message_data["evaluationResult"]
+                                    feedback_data = evaluation_data.get("feedback", {})
+                                    execution_results = evaluation_data.get("execution_results", {})
+                                    code = message_data.get("code", "")
+                                    
+                                    # Validate feedback data
+                                    if not validate_feedback_data(feedback_data):
+                                        logger.warning("Feedback data missing required fields")
+                                        feedback_data = {
+                                            "summary": "Feedback data incomplete",
+                                            "correctness": {},
+                                            "efficiency": {},
+                                            "code_quality": {}
+                                        }
+                        except (json.JSONDecodeError, AttributeError) as e:
+                            logger.warning(f"Error parsing evaluation data: {str(e)}")
+                        
+                        # Use the helper function to format the feedback prompt
+                        system_prompt += format_feedback_prompt(feedback_data, execution_results, code)
                     else:
                         system_prompt += """\n\nIMPORTANT: You are now in the FEEDBACK stage. Provide general feedback on the candidate's performance so far, 
 or if a specific topic was just discussed, provide feedback on that."""
