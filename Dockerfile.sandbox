@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Set working directory
+WORKDIR /app
+
+# Install only essential packages
+RUN pip install --no-cache-dir \
+    pylint==3.0.0 \
+    black==23.7.0
+
+# Create a directory for code execution
+RUN mkdir -p /app/code
+
+# Set proper permissions
+RUN chmod -R 755 /app
+
+# Command to run the code execution
+CMD ["python", "-m", "code_execution"] 
